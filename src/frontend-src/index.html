@@ -1879,10 +1879,12 @@ function renderInstallSheet(){
    Если Telegram промпт не покажет — откат на нативный tg.addToHomeScreen().
    Ссылка захардкожена — СЕЙЧАС ТЕСТОВАЯ (t.me/seemini_bot/schedule,
    Main App + direct link в BotFather); прод — @rasp_chpou_bot,
-   вернуть при релизе (там тоже нужен Main App + direct link). */
+   вернуть при релизе (там тоже нужен Main App + direct link).
+   startapp ОБЯЗАТЕЛЬНО со значением («home»): пустой startapp
+   Telegram игнорирует, и ссылка открывает чат, а не приложение. */
 function addToHomeScreenNative(){
   const tg=window.Telegram && Telegram.WebApp;
-  const link="https://t.me/seemini_bot/schedule?startapp&addToHomeScreen";
+  const link="https://t.me/seemini_bot/schedule?startapp=home&addToHomeScreen";
   if(tg && typeof tg.openLink==="function"){
     try{ tg.openLink(link); haptic("light"); return; }
     catch(e){}
