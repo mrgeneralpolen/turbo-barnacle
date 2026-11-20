@@ -941,11 +941,6 @@
     <span>Настройки</span></button>
 </div></nav>
 
-<!-- liquidGL v3.0.0 (MIT) — настоящее преломление панели и капсулы.
-     НЕ грузится синхронно: файл лежит рядом с index.html и подключается
-     лениво после первой отрисовки расписания и только при поддержке WebGL
-     (см. loadLiquidGL в скрипте). Без него — сразу CSS blur, без ожидания. -->
-
 <script>
 "use strict";
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
@@ -1159,9 +1154,9 @@ function haptic(kind){try{tg&&tg.HapticFeedback&&tg.HapticFeedback.notificationO
 })(window);
 
 /* Куда ставим преломление: пилюля группы и листы (модуль deepika — работает
-   только в Chromium, в Safari это просто blur). Панель и капсула — отдельно,
-   через liquidGL (см. initLiquidGL ниже). Карточки пар/звонков — нет: при
-   скролле это дорого, там и так матовое стекло. */
+   только в Chromium, в Safari это просто blur). Панель и капсула — обычный
+   CSS blur. Карточки пар/звонков — нет: при скролле это дорого, там и так
+   матовое стекло. */
 function applyLiquidGlass(){
   try{ liquidGlass($("groupPill"), {scale:-70, chroma:4, border:0.15, mapBlur:8, blur:3, saturate:1.5, fallbackBlur:16}); }catch(e){}
   try{
@@ -1170,68 +1165,6 @@ function applyLiquidGlass(){
   }catch(e){}
 }
 applyLiquidGlass();
-
-/* Настоящее преломление панели и капсулы — библиотека liquidGL (WebGPU/WebGL).
-   Она снимает фон страницы в текстуру и гнёт его шейдером сама, поэтому работает
-   и в Safari, где backdrop-filter с SVG и системный материал недоступны.
-   Панель — одна линза, капсула — вторая, поверх панели (stacked lenses).
-   Если liquidGL.js не загрузился или WebGL недоступен — тихий выход, остаётся
-   CSS blur. Капсула ездит сама (transform/width), библиотека следит за ней
-   через свой render loop — выключать стекло при перетаскивании не нужно. */
-let lglBar=null, lglPill=null;
-function lglTint(){ return effectiveTheme()==="dark" ? "rgba(10,10,18,0.28)" : "rgba(255,255,255,0.30)"; }
-function syncLiquidGLTint(){
-  try{ if(lglBar && lglBar.setTint) lglBar.setTint(lglTint()); }catch(e){}
-  try{ if(lglPill && lglPill.setTint) lglPill.setTint(effectiveTheme()==="dark" ? "rgba(124,58,237,0.20)" : "rgba(124,58,237,0.25)"); }catch(e){}
-}
-function initLiquidGL(){
-  try{
-    if(typeof window.liquidGL!=="function") return;
-    if(lglBar||lglPill) return;
-    if(!$("tabbarInner")||!$("tabGlass")) return; /* панель ещё не в DOM */
-    lglBar=window.liquidGL({
-      target:"#tabbarInner", snapshot:"body", resolution:1.5,
-      refraction:0.012, bevelDepth:0.08, bevelWidth:0.15,
-      frost:2, specular:true, shadow:true, reveal:"fade",
-      tint:lglTint(), zIndex:50,
-      on:{ init(){ try{ window.liquidGL.registerDynamic("#dayContent"); window.liquidGL.registerDynamic("#bellsContent"); }catch(e){} } }
-    });
-    lglPill=window.liquidGL({
-      target:"#tabGlass", snapshot:"body", content:false, resolution:1.5,
-      refraction:0.012, bevelDepth:0.1, bevelWidth:0.2,
-      frost:0, specular:true, shadow:false, reveal:"fade",
-      tint: effectiveTheme()==="dark" ? "rgba(124,58,237,0.20)" : "rgba(124,58,237,0.25)", zIndex:51
-    });
-  }catch(e){}
-}
-/* Ленивая загрузка liquidGL: НЕ блокирует первую отрисовку. Грузится
-   после первого рендера расписания и только при поддержке WebGL;
-   без WebGL или при ошибке загрузки — сразу CSS blur, без ожидания.
-   Линзы инициализируются после появления панели (initLiquidGL проверяет
-   #tabbarInner/#tabGlass); капсула ездит сама, библиотека следит за ней
-   через свой render loop — выключать стекло при перетаскивании не нужно. */
-let lglLoadStarted=false;
-function webglSupported(){
-  try{
-    const c=document.createElement("canvas");
-    return !!(c.getContext("webgl2")||c.getContext("webgl"));
-  }catch(e){ return false; }
-}
-function loadLiquidGL(){
-  if(lglLoadStarted) return;
-  lglLoadStarted=true;
-  if(typeof window.liquidGL==="function"){ initLiquidGL(); return; }
-  if(!webglSupported()) return;
-  const s=document.createElement("script");
-  s.src="liquidGL.js"; s.async=true;
-  s.onload=()=>initLiquidGL();
-  s.onerror=()=>{};
-  document.head.appendChild(s);
-}
-function scheduleLiquidGL(){
-  if(window.requestIdleCallback) requestIdleCallback(()=>loadLiquidGL(), {timeout:1500});
-  else setTimeout(loadLiquidGL, 50);
-}
 
 /* ---------- Состояние ---------- */
 function loadSettings(){
@@ -1262,7 +1195,7 @@ function applyThemeSetting(){
 }
 function setTheme(val){
   if(!["auto","dark","light"].includes(val)) return;
-  state.settings.theme=val; saveSettings(); applyThemeSetting(); syncLiquidGLTint(); renderSettings(); haptic("light");
+  state.settings.theme=val; saveSettings(); applyThemeSetting(); renderSettings(); haptic("light");
 }
 function syncThemeSeg(){
   const seg=$("themeSeg"); if(!seg) return;
@@ -3021,7 +2954,6 @@ async function loadWeek(){
   }
   renderDayStrip(); renderDay();
   prefetchWeekTeachers();
-  scheduleLiquidGL();
   if(state.weekAnimDir){ animateWeek(state.weekAnimDir); state.weekAnimDir=null; }
   // Фоновая подгрузка соседних недель — чтобы свайп знал границы заранее
   prefetchWeek(addDays(state.weekStart, -7));
@@ -3260,7 +3192,7 @@ async function init(){
         const upcoming=(boot.week.days||[]).find(d=>d.pairs.length && parseD(d.date)>=midnight);
         if(upcoming) state.selectedDate=parseD(upcoming.date);
       }
-      renderDayStrip(); renderDay(); prefetchWeekTeachers(); scheduleLiquidGL();
+      renderDayStrip(); renderDay(); prefetchWeekTeachers();
       prefetchWeek(addDays(state.weekStart, -7));
       prefetchWeek(addDays(state.weekStart, 7));
     }else if(state.group){

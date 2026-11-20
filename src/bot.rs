@@ -2345,8 +2345,8 @@ pub fn health_json() -> serde_json::Value {
 }
 
 /// Cache-Control для статики /app/* (цель — открытие Mini App < 1 с):
-/// версионируемые файлы (liquidGL.js и т.п.) — immutable на год,
-/// index.html — no-cache, чтобы обновления Mini App доходили сразу.
+/// index.html — no-cache, чтобы обновления Mini App доходили сразу;
+/// остальные файлы (если появятся) — immutable на год.
 /// Gzip здесь НЕТ: tower-http 0.5.2 compression-gzip требует
 /// async-compression, которого нет в Cargo.lock и в локальном кэше —
 /// офлайн включить нельзя (зафиксировано как пропущенное, без скачиваний).
