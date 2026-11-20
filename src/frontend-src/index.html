@@ -1877,11 +1877,12 @@ function renderInstallSheet(){
    Расписание ТюмКЭУП на экран "Домой"» с иконкой и шагами
    (Поделиться → На экран «Домой») — проверено скриншотом 20.11.2026.
    Если Telegram промпт не покажет — откат на нативный tg.addToHomeScreen().
-   Ссылка захардкожена — СЕЙЧАС ТЕСТОВАЯ (@seemini_bot); прод —
-   @rasp_chpou_bot, вернуть при релизе. */
+   Ссылка захардкожена — СЕЙЧАС ТЕСТОВАЯ (t.me/seemini_bot/schedule,
+   Main App + direct link в BotFather); прод — @rasp_chpou_bot,
+   вернуть при релизе (там тоже нужен Main App + direct link). */
 function addToHomeScreenNative(){
   const tg=window.Telegram && Telegram.WebApp;
-  const link="https://t.me/seemini_bot/?startapp&addToHomeScreen";
+  const link="https://t.me/seemini_bot/schedule?startapp&addToHomeScreen";
   if(tg && typeof tg.openLink==="function"){
     try{ tg.openLink(link); haptic("light"); return; }
     catch(e){}
@@ -2666,10 +2667,6 @@ function renderBells(){
   if(!sections.length && Array.isArray(b.pairs) && b.pairs.length){
     sections=[{title:"Звонки", rows:b.pairs.map(p=>({label:p.n+" пара", kind:"pair", pair:p.n, start:p.start, end:p.end}))}];
   }
-  if(state.settings.onlyMyShift && b.shift){
-    const mine=sections.filter(sec=>sec.title && sec.title.indexOf(b.shift+" смена")>=0);
-    if(mine.length) sections=mine;
-  }
   let h="";
   /* Сокращённые звонки на этот день: фото из бота. Раньше ссылка была
      только под парами на вкладке расписания, а во вкладке звонков её
@@ -2681,12 +2678,17 @@ function renderBells(){
   }
   /* Сетка — под пары группы на этот день, но только когда это нужно:
      если у группы нет 1-й пары, а есть 2–4, в секции «1 смена» остаются
-     только строки 2, 3, 4. Если смена обычная (1-я пара есть) — сетка
-     как была, без изменений. Структура секций не меняется — никаких
+     только строки 2, 3, 4. Пары группы могут лежать в обеих секциях
+     (напр. 3, 4 — в «1 смена», 5 — во «2 смена», гр. 24-28, 20.11.2026):
+     фильтр по парам идёт СНАЧАЛА и по ВСЕМ секциям, пустые секции
+     выбрасываются — так не теряется ни одна пара. Только если пар нет
+     на этот день (или 1-я пара есть — смена обычная), работает фильтр
+     «только наша смена». Структура секций не меняется — никаких
      отдельных блоков, те же строки «N пара». Перерывы (Обед и т.п.) —
      только внутри диапазона пар группы. */
   const day=(state.week.days||[]).find(d=>d.date===b.date);
   const myPairs=new Set(((day&&day.pairs)||[]).map(p=>p.n));
+  let pairFiltered=false;
   if(myPairs.size && !myPairs.has(1)){
     const toMin=s=>{ const a=String(s||"").split(":").map(Number); return a.length===2?a[0]*60+a[1]:null; };
     const times=((day&&day.pairs)||[]).map(p=>p.time||{}).filter(t=>t.start&&t.end);
@@ -2703,7 +2705,13 @@ function renderBells(){
         return rs!==null && re!==null && rs>=firstStart && re<=lastEnd;
       })
     })).filter(sec=>sec.rows.length);
-    if(filtered.length) sections=filtered;
+    if(filtered.length){ sections=filtered; pairFiltered=true; }
+  }
+  /* Фильтр «только наша смена» — только запасной вариант: когда фильтр
+     по парам не сработал (пар нет на этот день или 1-я пара есть). */
+  if(!pairFiltered && state.settings.onlyMyShift && b.shift){
+    const mine=sections.filter(sec=>sec.title && sec.title.indexOf(b.shift+" смена")>=0);
+    if(mine.length) sections=mine;
   }
   sections.forEach(sec=>{
     h+='<div class="shift-title">'+esc(sec.title||"Звонки")+'</div><div class="bells-list">';
