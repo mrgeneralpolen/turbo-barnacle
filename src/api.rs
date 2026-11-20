@@ -50,12 +50,13 @@ use crate::teachers;
 use crate::tyumen;
 use crate::Result;
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, Request, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri};
+use axum::extract::{ConnectInfo, Query, Request, State};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use axum::Router;
+use std::path::Path;
 use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, Timelike};
 use hmac::{Hmac, Mac};
 use regex::Regex;
@@ -143,7 +144,11 @@ pub struct InitDataUser {
 pub struct ApiState {
     pub service: Arc<ScheduleService>,
     pub db: Arc<Db>,
-    pub bot_token: String,
+    pub bot_token: String,    /// Имя бота (без @) — для ссылки «Добавить на главный экран»:
+    /// https://t.me/<username>/?startapp&addToHomeScreen. Пусто, если
+    /// getMe при старте не удался, — тогда фронт откатывается на
+    /// нативный метод tg.addToHomeScreen().
+    pub bot_username: String,
 }
 
 // ================= validate_init_data =================
@@ -520,7 +525,7 @@ pub fn day_payload(service: &ScheduleService, group: &str, target: NaiveDate) ->
 // ================= Payload-строители (переиспользуются хендлерами) =================
 
 /// Тело /api/me. group_display — display-имя группы (см. teachers.rs).
-fn me_payload(user: &InitDataUser, group: &Option<String>) -> Value {
+fn me_payload(user: &InitDataUser, group: &Option<String>, bot_username: &str) -> Value {
     let group_set = group
         .as_deref()
         .map(|g| !g.is_empty() && g != "26-21")
@@ -538,6 +543,7 @@ fn me_payload(user: &InitDataUser, group: &Option<String>) -> Value {
         "needs_specialty": needs_specialty,
         "now": tyumen::fmt_datetime(tyumen::tyumen_now()),
         "timezone": "Asia/Yekaterinburg (UTC+5)",
+        "bot_username": bot_username,
     })
 }
 
@@ -729,7 +735,7 @@ async fn api_me(
         Ok(g) => g,
         Err(e) => return db_err(e),
     };
-    ok(me_payload(&user, &group))
+    ok(me_payload(&user, &group, &state.bot_username))
 }
 
 async fn api_groups(
@@ -1315,7 +1321,7 @@ async fn api_bootstrap(
         None => (None, None, None),
     };
     ok(json!({
-        "me": me_payload(&user, &group),
+        "me": me_payload(&user, &group, &state.bot_username),
         "group": group,
         "group_display": group_display,
         "today": today,
@@ -1582,11 +1588,43 @@ pub async fn security_headers_mw(req: Request, next: Next) -> Response {
     resp
 }
 
+/// GET /app/app.html — само приложение, ТОЛЬКО с валидной initData
+/// (query-параметр initData). Без подписи или с просроченной — 403.
+/// Загрузчик /app/index.html запрашивает этот адрес; вне Telegram
+/// приложение не открывается вообще: ни по прямой ссылке, ни из браузера.
+/// Ответ — no-store/private: страница с кодом приложения не должна
+/// осесть ни в одном кэше (см. static_cache_headers_mw: он /app/app.html
+/// не трогает, заголовки здесь — единственные).
+async fn api_app_html(
+    State(state): State<ApiState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let init_data = params.get("initData").map(String::as_str).unwrap_or("");
+    if validate_init_data(init_data, &state.bot_token).is_err() {
+        return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+    }
+    let dir = std::env::var("WEBAPP_DIR").unwrap_or_else(|_| "webapp".to_string());
+    let path = Path::new(&dir).join("app.html");
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                (header::CACHE_CONTROL, "no-store, private"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "Not Found").into_response(),
+    }
+}
+
 /// Axum-роутер с /api/* (без /app/ — статика монтируется в main.rs).
 /// Без middleware: rate-limit и security headers добавляет
 /// router_with_middleware (подключается в bot.rs serve()).
 pub fn router(state: ApiState) -> Router {
     Router::new()
+        .route("/app/app.html", get(api_app_html))
         .route("/api/ping", get(api_ping))
         .route("/api/me", get(api_me))
         .route("/api/groups", get(api_groups))
@@ -1783,6 +1821,7 @@ mod tests {
             ApiState {
                 service,
                 db,
+                bot_username: String::new(),
                 bot_token: TEST_TOKEN.to_string(),
             },
         )

@@ -2441,8 +2441,11 @@ pub fn health_json() -> serde_json::Value {
 }
 
 /// Cache-Control для статики /app/* (цель — открытие Mini App < 1 с):
-/// index.html — no-cache, чтобы обновления Mini App доходили сразу;
+/// index.html (загрузчик) — no-cache, чтобы обновления доходили сразу;
 /// остальные файлы (если появятся) — immutable на год.
+/// /app/app.html — НЕ трогаем: это закрытая страница (только с initData),
+/// её заголовки ставит сам обработчик (no-store, private), и публичный
+/// immutable сюда нельзя — иначе код приложения осел бы в общем кэше.
 /// Gzip здесь НЕТ: tower-http 0.5.2 compression-gzip требует
 /// async-compression, которого нет в Cargo.lock и в локальном кэше —
 /// офлайн включить нельзя (зафиксировано как пропущенное, без скачиваний).
@@ -2451,7 +2454,7 @@ pub async fn static_cache_headers_mw(req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
     let is_static = path.starts_with("/app/");
     let mut resp = next.run(req).await;
-    if is_static {
+    if is_static && path != "/app/app.html" {
         let value = if path == "/app/" || path == "/app/index.html" {
             "no-cache"
         } else {
@@ -2689,6 +2692,21 @@ pub async fn serve(config: Config, service: Arc<ScheduleService>, db: Arc<Db>) -
         )
     };
 
+    // Имя бота — для ссылки «Добавить на главный экран»
+    // (https://t.me/<username>/?startapp&addToHomeScreen). getMe один раз
+    // при старте, с таймаутом 10 с: мёртвая сеть не должна тормозить
+    // запуск сервера. Не получилось — пусто, фронт откатится на
+    // нативный метод tg.addToHomeScreen().
+    let bot_username = match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        bot.get_me(),
+    )
+    .await
+    {
+        Ok(Ok(me)) => me.username.clone().unwrap_or_default(),
+        _ => String::new(),
+    };
+
     let webapp_dir =
         std::env::var("WEBAPP_DIR").unwrap_or_else(|_| "webapp".to_string());
     let app = Router::new()
@@ -2697,6 +2715,7 @@ pub async fn serve(config: Config, service: Arc<ScheduleService>, db: Arc<Db>) -
         .merge(api::router_with_middleware(ApiState {
             service: service.clone(),
             db: db.clone(),
+            bot_username,
             bot_token: config.bot_token.clone(),
         }))
         .nest_service("/app", ServeDir::new(webapp_dir))

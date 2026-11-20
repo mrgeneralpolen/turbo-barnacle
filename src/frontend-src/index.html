@@ -4,12 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#08080d">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Расписание">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="icon" href="icon.png">
-<link rel="apple-touch-icon" sizes="180x180" href="icon.png">
 <title>Расписание — Mini App</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -716,7 +710,7 @@
       <div id="searchResults" class="hidden"></div>
     </div>
 
-    <div class="week-nav anim anim-3">
+    <div class="week-nav anim anim-3" id="scheduleWeekNav">
       <button class="nav-arrow glass" onclick="shiftWeek(-1)" aria-label="Предыдущая неделя">‹</button>
       <div class="label" id="weekLabel">—</div>
       <button class="nav-arrow glass" onclick="shiftWeek(1)" aria-label="Следующая неделя">›</button>
@@ -1660,23 +1654,22 @@ function toggleFullscreen(){
   syncFullscreenSwitch();
   haptic("light");
 }
-/* Запуск с главного экрана (иконка Safari / PWA): на iOS — navigator.standalone,
-   на Android — display-mode: standalone. Внутри Telegram — false. */
-function isStandalone(){
+/* Запуск по прямой ссылке / с ярлыка на главном экране: Telegram передаёт
+   chat_type и chat_instance ТОЛЬКО при запуске по прямой ссылке
+   (t.me/<бот>?startapp). Ярлык, который ставит addToHomeScreen(), —
+   это и есть прямая ссылка. Из меню и из чата этих полей нет — там
+   приложение открывается обычным окном, без авто-полного экрана.
+   Ручной переключатель в настройках по-прежнему работает. */
+function isDirectLaunch(){
   try{
-    if(window.navigator && window.navigator.standalone) return true;
-    if(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) return true;
-  }catch(e){}
-  return false;
+    const u=window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe;
+    return !!(u && (u.chat_type || u.chat_instance));
+  }catch(e){ return false; }
 }
-/* Полный экран — только при запуске с главного экрана: там страница и так
-   открывается без хрома браузера, а внутри Telegram авто-полный экран
-   выключен — приложение открывается обычным окном. Ручной переключатель
-   в настройках по-прежнему работает. */
 function applyFullscreenPref(){
   const t=window.Telegram && Telegram.WebApp;
   if(!state.settings.fullscreen) return;
-  if(!isStandalone()) return;
+  if(!isDirectLaunch()) return;
   if(!t || typeof t.requestFullscreen!=="function") return;
   try{ if(!t.isFullscreen) t.requestFullscreen(); }catch(e){}
 }
@@ -1856,49 +1849,43 @@ function setHomeScreenStatus(s){
   const ov=$("installSheetOverlay");
   if(ov && !ov.classList.contains("hidden")) renderInstallSheet();
 }
-function isIOS(){ try{ return /iPhone|iPad|iPod/.test(navigator.userAgent||""); }catch(e){ return false; } }
 function renderInstallSheet(){
   const body=$("installSheetBody");
   if(!body) return;
-  /* iOS: иконка из Telegram открывает приложение через Telegram, поэтому
-     на iOS нативную кнопку не показываем — только путь через Safari. */
-  if(isIOS()){
-    body.innerHTML='<div class="muted" style="margin-bottom:12px">Иконка из Telegram открывает приложение через Telegram. Чтобы открывалось отдельно, как обычное приложение, добавь его из Safari — а старую иконку с главного экрана удали.</div>'+
-      '<div class="install-row"><div class="install-plat">Шаг 1</div><div>Нажми «Открыть в браузере» ниже</div></div>'+
-      '<div class="install-row"><div class="install-plat">Шаг 2</div><div>В Safari: «Поделиться» → «На экран "Домой"»</div></div>'+
-      '<div style="height:18px"></div>'+
-      '<button class="btn" onclick="openAppInBrowser()">Открыть в браузере</button>'+
-      '<div style="height:10px"></div>'+
-      '<button class="btn ghost" onclick="copyAppLink(this)">Скопировать ссылку</button>';
-    return;
-  }
   if(homeScreenStatus==="added"){
     body.innerHTML='<div class="muted" style="padding:12px 2px">Приложение уже на главном экране</div>';
     return;
   }
   if(homeScreenStatus==="unsupported"){
-    body.innerHTML='<div class="muted" style="margin-bottom:12px">Этот Telegram не поддерживает добавление на главный экран. Открой приложение в браузере — там его можно добавить.</div>'+
-      '<div class="install-row"><div class="install-plat">iOS</div><div>Safari → «Поделиться» → «На экран "Домой"»</div></div>'+
-      '<div class="install-row"><div class="install-plat">Android</div><div>Chrome → ⋮ → «Добавить на главный экран»</div></div>'+
-      '<div class="install-row"><div class="install-plat">Windows / macOS</div><div>Chrome или Edge → значок установки в адресной строке</div></div>'+
-      '<div style="height:18px"></div>'+
-      '<button class="btn" onclick="openAppInBrowser()">Открыть в браузере</button>'+
-      '<div style="height:10px"></div>'+
-      '<button class="btn ghost" onclick="copyAppLink(this)">Скопировать ссылку</button>';
+    body.innerHTML='<div class="muted" style="padding:12px 2px">Этот Telegram не поддерживает добавление на главный экран. Обнови Telegram до последней версии и попробуй снова.</div>';
     return;
   }
-  body.innerHTML='<div class="muted" style="margin-bottom:14px">Telegram добавит иконку расписания на главный экран — приложение будет открываться как обычное.</div>'+
+  /* Нативная кнопка Telegram (Bot API 8.0+): ссылку на главный экран
+     генерирует сам Telegram, никаких ссылок и браузеров здесь нет —
+     приложение открывается только внутри Telegram. */
+  body.innerHTML='<div class="muted" style="margin-bottom:14px">Telegram добавит иконку расписания на главный экран — приложение будет открываться в один тап, как обычное.</div>'+
     '<button class="btn" onclick="addToHomeScreenNative()">Добавить на главный экран</button>';
+}
+/* Кнопка «Добавить на главный экран»: открывает прямую ссылку бота
+   https://t.me/<имя>/?startapp&addToHomeScreen — Telegram по ней сам
+   показывает предложение добавить ярлык (так делают игровые боты;
+   параметр addToHomeScreen в ссылке — триггер этого диалога).
+   Имя бота сервер отдаёт в /api/me (getMe при старте). Нет имени или
+   нет openTelegramLink — откат на нативный метод tg.addToHomeScreen(). */
+function homeScreenLink(){
+  const u=state.botUsername||"";
+  return u ? "https://t.me/"+u+"/?startapp&addToHomeScreen" : "";
 }
 function addToHomeScreenNative(){
   const tg=window.Telegram && Telegram.WebApp;
+  const link=homeScreenLink();
+  if(link && tg && typeof tg.openTelegramLink==="function"){
+    try{ tg.openTelegramLink(link); haptic("light"); return; }
+    catch(e){}
+  }
   if(!tg || typeof tg.addToHomeScreen!=="function"){ setHomeScreenStatus("unsupported"); return; }
   try{ tg.addToHomeScreen(); haptic("light"); }
   catch(e){ setHomeScreenStatus("unsupported"); }
-}
-function appUrl(){
-  const u=window.location.href||"";
-  return /^https?:/.test(u) ? u : "";
 }
 function openInstallSheet(){
   const p=sheetParts("installSheetOverlay", "installSheet");
@@ -1910,36 +1897,6 @@ function openInstallSheet(){
   haptic("light");
 }
 function closeInstallSheet(){ const p=sheetParts("installSheetOverlay", "installSheet"); if(p) dismissSheet(p.ov, p.sh); }
-function openAppInBrowser(){
-  const u=appUrl();
-  if(!u){ haptic("error"); return; }
-  const tg=window.Telegram && Telegram.WebApp;
-  if(tg && tg.openLink) tg.openLink(u);
-  else window.open(u, "_blank");
-}
-function copyAppLink(btn){
-  const u=appUrl();
-  if(!u){ haptic("error"); return; }
-  const done=()=>{
-    if(btn){ const old=btn.textContent; btn.textContent="Ссылка скопирована"; setTimeout(()=>{ btn.textContent=old; }, 1800); }
-    haptic("light");
-  };
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(u).then(done, ()=>copyViaTextarea(u, done));
-  }else{
-    copyViaTextarea(u, done);
-  }
-}
-function copyViaTextarea(text, done){
-  try{
-    const ta=document.createElement("textarea");
-    ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
-    document.body.appendChild(ta); ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-    done();
-  }catch(e){ haptic("error"); }
-}
 function openGroupSheet(){
   const p=sheetParts("groupSheetOverlay", "groupSheet");
   if(p) resetSheetForOpen(p.ov, p.sh);
@@ -2209,16 +2166,24 @@ let searchSeq=0;
 function searchKey(e){
   if(e && e.key==="Enter"){ if(e.preventDefault) e.preventDefault(); const inp=$("searchInput"); if(inp) inp.blur(); }
 }
+/* Поиск — отдельный режим: под полем только результаты. Навигация по
+   неделям и полоска дней при поиске скрываются — они лежат в DOM позже
+   панели результатов и из-за анимаций рисуются ПОВЕРХ неё. */
+function setSearchMode(on){
+  ["scheduleWeekNav","dayStrip","dayContent"].forEach(id=>{
+    const el=$(id); if(el) el.classList.toggle("hidden", on);
+  });
+}
 async function onSearchInput(value){
   const q=String(value||"").trim();
   $("searchClear").classList.toggle("hidden", !q);
   if(q.length<2){
     $("searchResults").classList.add("hidden");
-    $("dayContent").classList.remove("hidden");
+    setSearchMode(false);
     return;
   }
   const my=++searchSeq;
-  $("dayContent").classList.add("hidden");
+  setSearchMode(true);
   try{
     const r=await api("/api/search?q="+encodeURIComponent(q)+"&date="+encodeURIComponent(fmt(state.selectedDate)));
     if(my!==searchSeq) return;
@@ -2233,7 +2198,7 @@ function clearSearch(){
   if(inp) inp.value="";
   $("searchClear").classList.add("hidden");
   $("searchResults").classList.add("hidden");
-  $("dayContent").classList.remove("hidden");
+  setSearchMode(false);
   if(inp) inp.blur();
 }
 /* Заметки и пропуски — только на сервере (GET/POST /api/notes,
@@ -2711,27 +2676,31 @@ function renderBells(){
   }else if(b.has_bells_photo){
     h+='<div class="bells-note glass">Сокращённые звонки на этот день — фото смотрите в боте.</div>';
   }
-  /* Пары группы на этот день — в обход сетки смен: только те пары,
-     которые у группы реально есть. Нет 1-й, а есть 2–4 — показываем
-     2–4 со временем, предметом и кабинетом, а не «1, 2, 3, 1 смена». */
+  /* Сетка — под пары группы на этот день, но только когда это нужно:
+     если у группы нет 1-й пары, а есть 2–4, в секции «1 смена» остаются
+     только строки 2, 3, 4. Если смена обычная (1-я пара есть) — сетка
+     как была, без изменений. Структура секций не меняется — никаких
+     отдельных блоков, те же строки «N пара». Перерывы (Обед и т.п.) —
+     только внутри диапазона пар группы. */
   const day=(state.week.days||[]).find(d=>d.date===b.date);
-  const pairs=(day&&day.pairs)||[];
-  if(pairs.length){
-    h+='<div class="shift-title">Мои пары</div><div class="bells-list">';
-    h+=pairs.map(p=>{
-      const t=p.time||{};
-      const s=String(t.start||"").split(":").map(Number), e=String(t.end||"").split(":").map(Number);
-      const sm=s.length===2?s[0]*60+s[1]:null, em=e.length===2?e[0]*60+e[1]:null;
-      const isNow=isToday&&sm!==null&&sm<=nowM&&nowM<em, isPast=isToday&&em!==null&&nowM>=em;
-      const stateTxt=isNow?"идёт сейчас":isPast?"прошла":"";
-      const label=p.n+" пара"+(p.subject?" • "+p.subject:"")+(p.room?" • "+p.room:"");
-      return '<div class="bell glass'+(isNow?" now":isPast?" past":"")+'">'+
-        '<div class="b-rail"><span class="b-dot"></span></div>'+
-        '<div class="b-time">'+(t.start&&t.end?'<span class="b-start">'+esc(t.start)+'</span><span class="b-end">– '+esc(t.end)+'</span>':"")+'</div>'+
-        '<div class="b-label">'+esc(label)+'</div>'+
-        (stateTxt?'<div class="b-state">'+stateTxt+'</div>':"")+'</div>';
-    }).join("");
-    h+="</div>";
+  const myPairs=new Set(((day&&day.pairs)||[]).map(p=>p.n));
+  if(myPairs.size && !myPairs.has(1)){
+    const toMin=s=>{ const a=String(s||"").split(":").map(Number); return a.length===2?a[0]*60+a[1]:null; };
+    const times=((day&&day.pairs)||[]).map(p=>p.time||{}).filter(t=>t.start&&t.end);
+    const starts=times.map(t=>toMin(t.start)).filter(v=>v!==null);
+    const ends=times.map(t=>toMin(t.end)).filter(v=>v!==null);
+    const firstStart=starts.length?Math.min.apply(null,starts):null;
+    const lastEnd=ends.length?Math.max.apply(null,ends):null;
+    const filtered=sections.map(sec=>({
+      title:sec.title,
+      rows:(sec.rows||[]).filter(r=>{
+        if(r.kind==="pair" || typeof r.pair==="number") return myPairs.has(Number(r.pair));
+        if(firstStart===null || lastEnd===null) return true;
+        const rs=toMin(r.start), re=toMin(r.end);
+        return rs!==null && re!==null && rs>=firstStart && re<=lastEnd;
+      })
+    })).filter(sec=>sec.rows.length);
+    if(filtered.length) sections=filtered;
   }
   sections.forEach(sec=>{
     h+='<div class="shift-title">'+esc(sec.title||"Звонки")+'</div><div class="bells-list">';
@@ -3288,6 +3257,7 @@ async function init(){
     state.boot=boot;
     const meObj=boot.me||{};
     state.me=meObj.user||meObj;
+    state.botUsername=meObj.bot_username||"";
     state.group=(boot.group!=null?boot.group:(meObj.group||null));
     if(state.group==="26-21") state.group=null; /* голая «26-21» — не группа */
     state.groupDisplay=boot.group_display||meObj.group_display||groupDisplayOf(state.group)||state.group;
