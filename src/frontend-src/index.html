@@ -163,7 +163,7 @@
 
   /* ---------- Bento: статистика ---------- */
   /* ---------- Поиск по предметам / преподавателям ---------- */
-  .search-wrap{margin-top:12px}
+  .search-wrap{margin-top:12px;position:relative}
   .search-box{display:flex;align-items:center;gap:8px;border-radius:99px;padding:6px 8px 6px 14px}
   .search-icon{font-size:18px;opacity:.6;flex:none}
   .search-box input{flex:1;min-width:0;background:none;border:0;outline:0;color:var(--text);font:inherit;font-size:15px;padding:8px 0}
@@ -171,6 +171,10 @@
   .search-box input::-webkit-search-cancel-button{display:none}
   .search-clear{flex:none;width:26px;height:26px;border-radius:50%;border:0;background:rgba(128,128,160,.18);color:var(--muted);font-size:12px;cursor:pointer}
   .search-results{margin-top:10px;display:flex;flex-direction:column;gap:10px}
+  /* Результаты — выпадающая панель поверх расписания, а не блок в потоке:
+     иначе каждый ввод меняет её высоту, страница прыгает и поле «съезжает». */
+  #searchResults{position:absolute;left:0;right:0;top:100%;z-index:30;max-height:55vh;overflow-y:auto;overscroll-behavior:contain;background:var(--bg);border:1px solid var(--line-soft);border-radius:var(--r-md);box-shadow:var(--shadow);padding:10px}
+  #searchResults .search-results{margin-top:0}
   .search-card{border-radius:var(--r-md);padding:14px 15px}
   .search-card .subj{font-weight:800;font-size:16px;letter-spacing:-.01em}
   .search-card .teachers{color:var(--muted);font-size:13px;margin-top:3px}
@@ -682,6 +686,10 @@
     display:flex;align-items:center;gap:10px;margin-top:4px;padding:14px 16px;
     border-radius:var(--r-md);color:var(--accent2);font-weight:800;text-decoration:none;
   }
+  .bells-note{
+    display:flex;align-items:center;gap:10px;margin-top:4px;padding:14px 16px;
+    border-radius:var(--r-md);color:var(--muted);font-weight:700;
+  }
 </style>
 </head>
 <body>
@@ -702,7 +710,7 @@
     <div class="search-wrap anim anim-2">
       <div class="search-box glass">
         <span class="search-icon" aria-hidden="true">⌕</span>
-        <input id="searchInput" type="search" placeholder="Предмет или преподаватель…" autocomplete="off" autocapitalize="off" oninput="onSearchInput(this.value)">
+        <input id="searchInput" type="search" placeholder="Предмет или преподаватель…" autocomplete="off" autocapitalize="off" enterkeyhint="search" oninput="onSearchInput(this.value)" onkeydown="searchKey(event)" onsearch="this.blur()">
         <button id="searchClear" class="search-clear hidden" onclick="clearSearch()" aria-label="Очистить поиск">✕</button>
       </div>
       <div id="searchResults" class="hidden"></div>
@@ -2196,6 +2204,11 @@ function renderSearchResults(res){
   box.classList.remove("hidden");
 }
 let searchSeq=0;
+/* Enter («Найти» на клавиатуре) — убрать клавиатуру: на телефоне она сама
+   не уходит, а поле без формы никуда не сабмитится. */
+function searchKey(e){
+  if(e && e.key==="Enter"){ if(e.preventDefault) e.preventDefault(); const inp=$("searchInput"); if(inp) inp.blur(); }
+}
 async function onSearchInput(value){
   const q=String(value||"").trim();
   $("searchClear").classList.toggle("hidden", !q);
@@ -2525,10 +2538,29 @@ function parseAnnouncement(text){
   const title=subject?(place?subject+" — "+place:subject):"Важное объявление";
   return {text:s, title, groups, time, stop, place, subject};
 }
+/* Объявление дня: в расписании оно приходит ДВУМЯ строками — в одной список
+   групп («Студенты групп ТГ-25-03б, ...!»), в другой суть («Занятия по
+   физической культуре будут проходить в Экопарке...»). Брать первую строку
+   нельзя: у неё нет предмета и места, карточка зовётся «Важное объявление»,
+   а суть объявления вообще пропадает. Поэтому сливаем все строки объявления
+   дня в одну: группы — из всех строк, предмет/место/время/остановка — из
+   строки, где они есть. */
 function dayAnnouncement(day){
-  const line=((day&&day.changes)||[]).find(isMyAnnouncement);
-  if(!line) return null;
-  return parseAnnouncement(line);
+  const lines=((day&&day.changes)||[]).filter(isAnnouncementLine);
+  if(!lines.length) return null;
+  const parsed=lines.map(parseAnnouncement);
+  const groups=[...new Set(parsed.flatMap(a=>a.groups||[]))];
+  const g=normGroup(state.groupDisplay||state.group);
+  if(groups.length && g && !groups.some(x=>normGroup(x)===g)) return null;
+  const merged={text:parsed.map(a=>a.text).join(" "), title:"Важное объявление", groups, time:null, stop:null, place:null, subject:null};
+  for(const a of parsed){
+    if(!merged.subject && a.subject) merged.subject=a.subject;
+    if(!merged.place && a.place) merged.place=a.place;
+    if(!merged.time && a.time) merged.time=a.time;
+    if(!merged.stop && a.stop) merged.stop=a.stop;
+  }
+  if(merged.subject) merged.title=merged.place?merged.subject+" — "+merged.place:merged.subject;
+  return merged;
 }
 /* Объявление, которое касается именно нашей группы (чужие остаются обычной строкой в заменах) */
 function isMyAnnouncement(line){
@@ -2540,7 +2572,15 @@ function isMyAnnouncement(line){
   return true;
 }
 function dayChangesWithoutAnn(day){
-  return ((day&&day.changes)||[]).filter(c=>!isMyAnnouncement(c));
+  const ann=dayAnnouncement(day);
+  if(!ann) return (day&&day.changes)||[];
+  const g=normGroup(state.groupDisplay||state.group);
+  return ((day&&day.changes)||[]).filter(c=>{
+    if(!isAnnouncementLine(c)) return true;
+    const a=parseAnnouncement(c);
+    if(!a.groups.length) return false;
+    return !(g && a.groups.some(x=>normGroup(x)===g));
+  });
 }
 /* Совпадение предметов с учётом синонимов (физкультура = физическая культура и т.п.) */
 /* Синонимы названий предметов для сопоставления объявления с парой. */
@@ -2663,6 +2703,36 @@ function renderBells(){
     if(mine.length) sections=mine;
   }
   let h="";
+  /* Сокращённые звонки на этот день: фото из бота. Раньше ссылка была
+     только под парами на вкладке расписания, а во вкладке звонков её
+     не было вовсе — хотя звонки смотрят именно здесь. */
+  if(b.bells_photo_url){
+    h+='<a class="photo-link glass" href="'+esc(b.bells_photo_url)+'" target="_blank" rel="noopener">Сокращённые звонки — фото на этот день →</a>';
+  }else if(b.has_bells_photo){
+    h+='<div class="bells-note glass">Сокращённые звонки на этот день — фото смотрите в боте.</div>';
+  }
+  /* Пары группы на этот день — в обход сетки смен: только те пары,
+     которые у группы реально есть. Нет 1-й, а есть 2–4 — показываем
+     2–4 со временем, предметом и кабинетом, а не «1, 2, 3, 1 смена». */
+  const day=(state.week.days||[]).find(d=>d.date===b.date);
+  const pairs=(day&&day.pairs)||[];
+  if(pairs.length){
+    h+='<div class="shift-title">Мои пары</div><div class="bells-list">';
+    h+=pairs.map(p=>{
+      const t=p.time||{};
+      const s=String(t.start||"").split(":").map(Number), e=String(t.end||"").split(":").map(Number);
+      const sm=s.length===2?s[0]*60+s[1]:null, em=e.length===2?e[0]*60+e[1]:null;
+      const isNow=isToday&&sm!==null&&sm<=nowM&&nowM<em, isPast=isToday&&em!==null&&nowM>=em;
+      const stateTxt=isNow?"идёт сейчас":isPast?"прошла":"";
+      const label=p.n+" пара"+(p.subject?" • "+p.subject:"")+(p.room?" • "+p.room:"");
+      return '<div class="bell glass'+(isNow?" now":isPast?" past":"")+'">'+
+        '<div class="b-rail"><span class="b-dot"></span></div>'+
+        '<div class="b-time">'+(t.start&&t.end?'<span class="b-start">'+esc(t.start)+'</span><span class="b-end">– '+esc(t.end)+'</span>':"")+'</div>'+
+        '<div class="b-label">'+esc(label)+'</div>'+
+        (stateTxt?'<div class="b-state">'+stateTxt+'</div>':"")+'</div>';
+    }).join("");
+    h+="</div>";
+  }
   sections.forEach(sec=>{
     h+='<div class="shift-title">'+esc(sec.title||"Звонки")+'</div><div class="bells-list">';
     h+=sec.rows.map(r=>{
@@ -2678,7 +2748,7 @@ function renderBells(){
     }).join("");
     h+="</div>";
   });
-  if(!sections.length) h='<div class="empty">На этот день звонков нет.</div>';
+  if(!h && !sections.length) h='<div class="empty">На этот день звонков нет.</div>';
   $("bellsContent").innerHTML=h;
   updateScrollMax();
 }

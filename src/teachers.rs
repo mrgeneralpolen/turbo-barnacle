@@ -252,7 +252,44 @@ fn spec_teachers_for(q: &str, spec: &str) -> Option<Vec<String>> {
             return Some(v.clone());
         }
     }
-    None
+    // Голый код («МДК.02.03») в расписании, а в переопределениях — полное
+    // имя («мдк.02.03 уголовное право»): префиксный поиск внутри программы.
+    // Несколько разных «мдк.02.03 *» в одной программе — неоднозначно, None.
+    let mut found: Option<Vec<String>> = None;
+    for (k, v) in by_spec {
+        if k.chars().count() >= 5 && (k.starts_with(q) || q.starts_with(k.as_str())) {
+            match &found {
+                None => found = Some(v.clone()),
+                Some(prev) if prev == v => {}
+                Some(_) => return None,
+            }
+        }
+    }
+    found
+}
+
+/// Резервный поиск по TEACHERS: первый ключ НЕ годится — голый код
+/// («мдк.02.03») это разные предметы в разных программах («оценка
+/// качества» — Муравьева, «уголовное право» — Степанова). Возвращаем
+/// преподавателей, только если все подошедшие ключи дают один и тот же
+/// список; иначе None — лучше никого, чем чужого.
+fn fuzzy_unique(
+    q: &str,
+    ordered: &[(String, Vec<String>)],
+    pred: impl Fn(&str, &str) -> bool,
+) -> Option<Vec<String>> {
+    let mut found: Option<Vec<String>> = None;
+    for (k, v) in ordered {
+        if k.chars().count() < 5 || !pred(k, q) {
+            continue;
+        }
+        match &found {
+            None => found = Some(v.clone()),
+            Some(prev) if prev == v => {}
+            Some(_) => return None,
+        }
+    }
+    found
 }
 
 fn data_aliases() -> &'static HashMap<String, Vec<String>> {
@@ -315,20 +352,15 @@ pub fn teachers_for(subject: &str, group: Option<&str>) -> TeachersFor {
         }
     }
     if found.is_none() && q.chars().count() >= 5 {
-        // Резервный поиск — по порядку ключей TEACHERS, как в JS.
-        for (k, v) in &data.ordered {
-            if k.chars().count() >= 5 && (k.starts_with(&q) || q.starts_with(k.as_str())) {
-                found = Some(v.clone());
-                break;
-            }
-        }
+        // Резервный поиск — как в JS, но без «первого попавшегося» ключа:
+        // голый код («мдк.02.03») — разные предметы в разных программах.
+        found = fuzzy_unique(&q, &data.ordered, |k, q| {
+            k.starts_with(q) || q.starts_with(k)
+        });
         if found.is_none() {
-            for (k, v) in &data.ordered {
-                if k.chars().count() >= 5 && (k.contains(&q) || q.contains(k.as_str())) {
-                    found = Some(v.clone());
-                    break;
-                }
-            }
+            found = fuzzy_unique(&q, &data.ordered, |k, q| {
+                k.contains(q) || q.contains(k)
+            });
         }
     }
     TeachersFor {
@@ -572,6 +604,47 @@ mod tests {
         assert_eq!(
             teachers_for("Физическая культура", None).teachers,
             vec!["Иванов С.Н.", "Мартьянов К.А.", "Сокол Ю.Я.", "Рачев О.С."]
+        );
+    }
+
+    /// Голый код МДК — разные предметы в разных программах:
+    /// «мдк.02.03 оценка качества» — Муравьева, «мдк.02.03 уголовное
+    /// право» — Степанова/Дерман. Учитель ищется ПО ПРОГРАММЕ группы
+    /// (префиксный поиск внутри переопределений специальности), а не
+    /// первым попавшимся ключом общего списка. Если в программе предмета
+    /// нет, а в общем списке он неоднозначен — никого (лучше никого,
+    /// чем чужого): ИП-24-27 с «МДК.02.03» получает пусто.
+    #[test]
+    fn mdk_bare_code_resolves_by_spec() {
+        // ЮР (40.02.04): «мдк.02.03 уголовное право» — только Степанова.
+        assert_eq!(
+            teachers_for("МДК.02.03", Some("ЮР-26-21")).teachers,
+            vec!["Степанова В.С."]
+        );
+        // ПД (40.02.02): то же полное имя — Дерман + Степанова.
+        assert_eq!(
+            teachers_for("МДК.02.03", Some("ПД-26-06")).teachers,
+            vec!["Дерман О.О.", "Степанова В.С."]
+        );
+        // ИП (09.02.07): в программе МДК.02.03 нет вообще, а общий список
+        // неоднозначен (Муравьева vs Степанова/Дерман) — пусто, а не Муравьева.
+        assert_eq!(
+            teachers_for("МДК.02.03", Some("ИП-24-27")).teachers,
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            teachers_for("МДК.02.03", Some("24-27")).teachers,
+            Vec::<String>::new()
+        );
+        // ТХ (19.02.13): «мдк.01.01 организация торгово-сбытовой...» — Муравьева.
+        assert_eq!(
+            teachers_for("МДК.01.01", Some("ТХ-25-11")).teachers,
+            vec!["Муравьева И.Н."]
+        );
+        // Без группы голый код тоже неоднозначен — пусто.
+        assert_eq!(
+            teachers_for("МДК.02.03", None).teachers,
+            Vec::<String>::new()
         );
     }
 
