@@ -144,11 +144,7 @@ pub struct InitDataUser {
 pub struct ApiState {
     pub service: Arc<ScheduleService>,
     pub db: Arc<Db>,
-    pub bot_token: String,    /// Имя бота (без @) — для ссылки «Добавить на главный экран»:
-    /// https://t.me/<username>/?startapp&addToHomeScreen. Пусто, если
-    /// getMe при старте не удался, — тогда фронт откатывается на
-    /// нативный метод tg.addToHomeScreen().
-    pub bot_username: String,
+    pub bot_token: String,
 }
 
 // ================= validate_init_data =================
@@ -525,7 +521,7 @@ pub fn day_payload(service: &ScheduleService, group: &str, target: NaiveDate) ->
 // ================= Payload-строители (переиспользуются хендлерами) =================
 
 /// Тело /api/me. group_display — display-имя группы (см. teachers.rs).
-fn me_payload(user: &InitDataUser, group: &Option<String>, bot_username: &str) -> Value {
+fn me_payload(user: &InitDataUser, group: &Option<String>) -> Value {
     let group_set = group
         .as_deref()
         .map(|g| !g.is_empty() && g != "26-21")
@@ -543,7 +539,6 @@ fn me_payload(user: &InitDataUser, group: &Option<String>, bot_username: &str) -
         "needs_specialty": needs_specialty,
         "now": tyumen::fmt_datetime(tyumen::tyumen_now()),
         "timezone": "Asia/Yekaterinburg (UTC+5)",
-        "bot_username": bot_username,
     })
 }
 
@@ -735,7 +730,7 @@ async fn api_me(
         Ok(g) => g,
         Err(e) => return db_err(e),
     };
-    ok(me_payload(&user, &group, &state.bot_username))
+    ok(me_payload(&user, &group))
 }
 
 async fn api_groups(
@@ -1321,7 +1316,7 @@ async fn api_bootstrap(
         None => (None, None, None),
     };
     ok(json!({
-        "me": me_payload(&user, &group, &state.bot_username),
+        "me": me_payload(&user, &group),
         "group": group,
         "group_display": group_display,
         "today": today,
@@ -1821,7 +1816,6 @@ mod tests {
             ApiState {
                 service,
                 db,
-                bot_username: String::new(),
                 bot_token: TEST_TOKEN.to_string(),
             },
         )

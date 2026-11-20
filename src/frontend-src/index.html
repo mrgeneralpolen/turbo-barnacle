@@ -1866,21 +1866,24 @@ function renderInstallSheet(){
   body.innerHTML='<div class="muted" style="margin-bottom:14px">Telegram добавит иконку расписания на главный экран — приложение будет открываться в один тап, как обычное.</div>'+
     '<button class="btn" onclick="addToHomeScreenNative()">Добавить на главный экран</button>';
 }
-/* Кнопка «Добавить на главный экран»: открывает прямую ссылку бота
-   https://t.me/<имя>/?startapp&addToHomeScreen — Telegram по ней сам
-   показывает предложение добавить ярлык (так делают игровые боты;
-   параметр addToHomeScreen в ссылке — триггер этого диалога).
-   Имя бота сервер отдаёт в /api/me (getMe при старте). Нет имени или
-   нет openTelegramLink — откат на нативный метод tg.addToHomeScreen(). */
-function homeScreenLink(){
-  const u=state.botUsername||"";
-  return u ? "https://t.me/"+u+"/?startapp&addToHomeScreen" : "";
-}
+/* Кнопка «Добавить на главный экран»: открывает прямую ссылку бота во
+   внешнем браузере (tg.openLink — Safari/Chrome), а система сама
+   перекидывает её в Telegram. Ссылка приходит в Telegram СНАРУЖИ —
+   так делают игровые боты (напр. GPTON): изнутри приложения та же
+   ссылка глотается (openTelegramLink просто переоткрывает уже
+   открытое приложение и промпт не показывает).
+   Параметр addToHomeScreen в ссылках в официальных доках не описан,
+   но Telegram его понимает: по ссылке открывается страница «Добавьте
+   Расписание ТюмКЭУП на экран "Домой"» с иконкой и шагами
+   (Поделиться → На экран «Домой») — проверено скриншотом 20.11.2026.
+   Если Telegram промпт не покажет — откат на нативный tg.addToHomeScreen().
+   Ссылка захардкожена — СЕЙЧАС ТЕСТОВАЯ (@seemini_bot); прод —
+   @rasp_chpou_bot, вернуть при релизе. */
 function addToHomeScreenNative(){
   const tg=window.Telegram && Telegram.WebApp;
-  const link=homeScreenLink();
-  if(link && tg && typeof tg.openTelegramLink==="function"){
-    try{ tg.openTelegramLink(link); haptic("light"); return; }
+  const link="https://t.me/seemini_bot/?startapp&addToHomeScreen";
+  if(tg && typeof tg.openLink==="function"){
+    try{ tg.openLink(link); haptic("light"); return; }
     catch(e){}
   }
   if(!tg || typeof tg.addToHomeScreen!=="function"){ setHomeScreenStatus("unsupported"); return; }
@@ -3257,7 +3260,7 @@ async function init(){
     state.boot=boot;
     const meObj=boot.me||{};
     state.me=meObj.user||meObj;
-    state.botUsername=meObj.bot_username||"";
+
     state.group=(boot.group!=null?boot.group:(meObj.group||null));
     if(state.group==="26-21") state.group=null; /* голая «26-21» — не группа */
     state.groupDisplay=boot.group_display||meObj.group_display||groupDisplayOf(state.group)||state.group;

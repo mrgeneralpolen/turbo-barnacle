@@ -2692,21 +2692,6 @@ pub async fn serve(config: Config, service: Arc<ScheduleService>, db: Arc<Db>) -
         )
     };
 
-    // Имя бота — для ссылки «Добавить на главный экран»
-    // (https://t.me/<username>/?startapp&addToHomeScreen). getMe один раз
-    // при старте, с таймаутом 10 с: мёртвая сеть не должна тормозить
-    // запуск сервера. Не получилось — пусто, фронт откатится на
-    // нативный метод tg.addToHomeScreen().
-    let bot_username = match tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        bot.get_me(),
-    )
-    .await
-    {
-        Ok(Ok(me)) => me.username.clone().unwrap_or_default(),
-        _ => String::new(),
-    };
-
     let webapp_dir =
         std::env::var("WEBAPP_DIR").unwrap_or_else(|_| "webapp".to_string());
     let app = Router::new()
@@ -2715,7 +2700,6 @@ pub async fn serve(config: Config, service: Arc<ScheduleService>, db: Arc<Db>) -
         .merge(api::router_with_middleware(ApiState {
             service: service.clone(),
             db: db.clone(),
-            bot_username,
             bot_token: config.bot_token.clone(),
         }))
         .nest_service("/app", ServeDir::new(webapp_dir))
