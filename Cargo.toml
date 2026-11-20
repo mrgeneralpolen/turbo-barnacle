@@ -1,0 +1,46 @@
+[package]
+name = "schedule-bot"
+version = "0.1.0"
+edition = "2021"
+description = "Telegram-бот расписания колледжа (ТюмКЭУП, VK rasp_chpou) — порт Python-проекта helloban3 на Rust"
+license = "MIT"
+
+[[bin]]
+name = "schedule-bot"
+path = "src/main.rs"
+
+[lib]
+name = "schedule_bot"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "fs"] }
+axum = "0.7"
+teloxide = { version = "0.13", features = ["webhooks-axum", "macros"] }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
+reqwest = { version = "0.12", features = ["rustls-tls", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+hmac = "0.12"
+sha2 = "0.10"
+zip = "2"
+quick-xml = { version = "0.36", features = ["serialize"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "2"
+tower-http = { version = "0.5", features = ["fs"] }
+url = "2"
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3"
+tokio-test = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
